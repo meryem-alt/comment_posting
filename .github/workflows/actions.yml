@@ -1,24 +1,45 @@
-name: Post FB Comments Hourly
+name: Auto Post Comments
 
 on:
   schedule:
-    - cron: "0 * * * *"   # كل ساعة
-  workflow_dispatch:      # تشغيل يدوي
+    # كل ساعة
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
-  run-script:
+  post_comments:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      # 1️⃣ Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2️⃣ Set up Python
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: '3.11'
+
+      # 3️⃣ Install dependencies
       - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run script
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      # 4️⃣ Run the Python script
+      - name: Run comment script
         env:
           PAGE_ACCESS_TOKEN: ${{ secrets.PAGE_ACCESS_TOKEN }}
           PAGE_ID: ${{ secrets.PAGE_ID }}
-        run: python main.py
+        run: |
+          python main.py
+
+      # 5️⃣ Commit changes to last_post_id.txt and last_folder.txt
+      - name: Commit updated files
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add last_post_id.txt last_folder.txt
+          git commit -m "Update last_post_id.txt & last_folder.txt [ci skip]" || echo "No changes to commit"
+          git push
