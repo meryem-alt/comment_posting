@@ -12,19 +12,26 @@ POSTED_FOLDER = os.path.join(COMMENTS_BASE_FOLDER, "posted")
 FOLDER_COUNT = 3  # total number of folders to rotate
 
 # Ensure posted folder exists
-if not os.path.exists(POSTED_FOLDER):
-    os.makedirs(POSTED_FOLDER)
+os.makedirs(POSTED_FOLDER, exist_ok=True)
 
 # Track last processed post
 last_post_id_file = os.path.join(COMMENTS_BASE_FOLDER, "last_post_id.txt")
 folder_rotation_file = os.path.join(COMMENTS_BASE_FOLDER, "folder_rotation.txt")
 
+# Ensure tracking files exist with default content
+os.makedirs(COMMENTS_BASE_FOLDER, exist_ok=True)
+if not os.path.exists(last_post_id_file):
+    with open(last_post_id_file, "w") as f:
+        f.write("")  # empty initially
+
+if not os.path.exists(folder_rotation_file):
+    with open(folder_rotation_file, "w") as f:
+        f.write("1")  # start from folder 1
+
 
 def get_last_post_id():
-    if os.path.exists(last_post_id_file):
-        with open(last_post_id_file, "r") as f:
-            return f.read().strip()
-    return None
+    with open(last_post_id_file, "r") as f:
+        return f.read().strip() or None
 
 
 def save_last_post_id(post_id):
@@ -43,10 +50,11 @@ def get_latest_post_id():
 
 
 def get_folder_rotation():
-    if os.path.exists(folder_rotation_file):
-        with open(folder_rotation_file, "r") as f:
-            return int(f.read().strip())
-    return 1
+    with open(folder_rotation_file, "r") as f:
+        content = f.read().strip()
+        if content.isdigit():
+            return int(content)
+    return 1  # default to folder 1 if missing or invalid
 
 
 def save_folder_rotation(rotation):
@@ -60,8 +68,10 @@ def post_comments_for_post(post_id, folder_number):
         print(f"⚠️ Folder {folder_number} does not exist, skipping comments.")
         return
 
-    image_files = [f for f in os.listdir(folder_path)
-                   if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+    image_files = [
+        f for f in os.listdir(folder_path)
+        if f.lower().endswith((".png", ".jpg", ".jpeg"))
+    ]
 
     if not image_files:
         print(f"⚠️ No images in folder {folder_number}, skipping.")
