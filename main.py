@@ -7,22 +7,32 @@ import shutil
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 PAGE_ID = os.getenv("PAGE_ID")
 
-COMMENTS_BASE_FOLDER = "comments"   # داخل repo (غادي نشرح لك)
+COMMENTS_BASE_FOLDER = "comments"
 POSTED_FOLDER = os.path.join(COMMENTS_BASE_FOLDER, "posted")
+FOLDER_COUNT = 3  # total number of folders to rotate
 
-# Ensure posted folder exists
-if not os.path.exists(POSTED_FOLDER):
-    os.makedirs(POSTED_FOLDER)
+# Ensure folders exist
+os.makedirs(POSTED_FOLDER, exist_ok=True)
+os.makedirs(COMMENTS_BASE_FOLDER, exist_ok=True)
 
-# Track last processed post
+# Tracking files
 last_post_id_file = os.path.join(COMMENTS_BASE_FOLDER, "last_post_id.txt")
+folder_rotation_file = os.path.join(COMMENTS_BASE_FOLDER, "folder_rotation.txt")
+
+# Ensure files exist with default values
+if not os.path.exists(last_post_id_file):
+    with open(last_post_id_file, "w") as f:
+        f.write("")
+
+if not os.path.exists(folder_rotation_file):
+    with open(folder_rotation_file, "w") as f:
+        f.write("1")
 
 
 def get_last_post_id():
-    if os.path.exists(last_post_id_file):
-        with open(last_post_id_file, "r") as f:
-            return f.read().strip()
-    return None
+    with open(last_post_id_file, "r") as f:
+        content = f.read().strip()
+        return content if content else None
 
 
 def save_last_post_id(post_id):
@@ -39,6 +49,19 @@ def get_latest_post_id():
     if "data" in feed and feed["data"]:
         return feed["data"][0]["id"]
     return None
+
+
+def get_folder_rotation():
+    with open(folder_rotation_file, "r") as f:
+        content = f.read().strip()
+        if content.isdigit():
+            return int(content)
+    return 1  # default if empty or invalid
+
+
+def save_folder_rotation(rotation):
+    with open(folder_rotation_file, "w") as f:
+        f.write(str(rotation))
 
 
 def post_comments_for_post(post_id, folder_number):
@@ -69,10 +92,8 @@ def post_comments_for_post(post_id, folder_number):
         print(f"📤 Uploading {image_name} ...")
         response = requests.post(url_comment, files=files, data=params)
         result = response.json()
-
         print(json.dumps(result, indent=2))
 
-        # Success
         if "id" in result:
             print(f"✅ Posted {image_name}")
             shutil.move(image_path, os.path.join(POSTED_FOLDER, image_name))
@@ -80,17 +101,9 @@ def post_comments_for_post(post_id, folder_number):
             print(f"❌ Failed posting {image_name}")
 
 
-# Main execution (GitHub Actions runs ONCE)
+# === Main ===
 def main():
-    folder_rotation_file = os.path.join(COMMENTS_BASE_FOLDER, "folder_rotation.txt")
-
-    # Load rotation number
-    if os.path.exists(folder_rotation_file):
-        with open(folder_rotation_file, "r") as f:
-            folder_rotation = int(f.read().strip())
-    else:
-        folder_rotation = 1
-
+    folder_rotation = get_folder_rotation()
     latest_post_id = get_latest_post_id()
     last_post_id = get_last_post_id()
 
@@ -101,11 +114,9 @@ def main():
 
         # Rotate folder
         folder_rotation += 1
-        if folder_rotation > 3:
+        if folder_rotation > FOLDER_COUNT:
             folder_rotation = 1
-
-        with open(folder_rotation_file, "w") as f:
-            f.write(str(folder_rotation))
+        save_folder_rotation(folder_rotation)
 
     else:
         print("ℹ️ No new post.")
