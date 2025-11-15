@@ -1,34 +1,114 @@
-import logging
-import logging.handlers
-import os
-
 import requests
+import os
+import json
+import shutil
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger_file_handler = logging.handlers.RotatingFileHandler(
-    "status.log",
-    maxBytes=1024 * 1024,
-    backupCount=1,
-    encoding="utf8",
-)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger_file_handler.setFormatter(formatter)
-logger.addHandler(logger_file_handler)
+# === Settings ===
+PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
+PAGE_ID = os.getenv("PAGE_ID")
 
-try:
-    SOME_SECRET = os.environ["SOME_SECRET"]
-except KeyError:
-    SOME_SECRET = "Token not available!"
-    #logger.info("Token not available!")
-    #raise
+COMMENTS_BASE_FOLDER = "comments"
+POSTED_FOLDER = os.path.join(COMMENTS_BASE_FOLDER, "posted")
+FOLDER_COUNT = 3  # total number of folders to rotate
+
+# Ensure posted folder exists
+if not os.path.exists(POSTED_FOLDER):
+    os.makedirs(POSTED_FOLDER)
+
+# Track last processed post
+last_post_id_file = os.path.join(COMMENTS_BASE_FOLDER, "last_post_id.txt")
+folder_rotation_file = os.path.join(COMMENTS_BASE_FOLDER, "folder_rotation.txt")
+
+
+def get_last_post_id():
+    if os.path.exists(last_post_id_file):
+        with open(last_post_id_file, "r") as f:
+            return f.read().strip()
+    return None
+
+
+def save_last_post_id(post_id):
+    with open(last_post_id_file, "w") as f:
+        f.write(post_id)
+
+
+def get_latest_post_id():
+    url_feed = f"https://graph.facebook.com/v19.0/{PAGE_ID}/feed"
+    params = {"access_token": PAGE_ACCESS_TOKEN, "limit": 1}
+    response = requests.get(url_feed, params=params)
+    feed = response.json()
+    if "data" in feed and feed["data"]:
+        return feed["data"][0]["id"]
+    return None
+
+
+def get_folder_rotation():
+    if os.path.exists(folder_rotation_file):
+        with open(folder_rotation_file, "r") as f:
+            return int(f.read().strip())
+    return 1
+
+
+def save_folder_rotation(rotation):
+    with open(folder_rotation_file, "w") as f:
+        f.write(str(rotation))
+
+
+def post_comments_for_post(post_id, folder_number):
+    folder_path = os.path.join(COMMENTS_BASE_FOLDER, str(folder_number))
+    if not os.path.exists(folder_path):
+        print(f"⚠️ Folder {folder_number} does not exist, skipping comments.")
+        return
+
+    image_files = [f for f in os.listdir(folder_path)
+                   if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+
+    if not image_files:
+        print(f"⚠️ No images in folder {folder_number}, skipping.")
+        return
+
+    for image_name in image_files:
+        image_path = os.path.join(folder_path, image_name)
+        url_comment = f"https://graph.facebook.com/v19.0/{post_id}/comments"
+
+        with open(image_path, "rb") as f:
+            image_data = f.read()
+
+        files = {"source": (image_name, image_data)}
+        params = {"access_token": PAGE_ACCESS_TOKEN}
+
+        print(f"📤 Uploading comment: {image_name} ...")
+        response = requests.post(url_comment, files=files, data=params)
+        result = response.json()
+        print(json.dumps(result, indent=2))
+
+        if "id" in result:
+            print(f"✅ Comment posted successfully: {image_name}")
+            shutil.move(image_path, os.path.join(POSTED_FOLDER, image_name))
+        else:
+            print(f"❌ Failed to post comment: {image_name}")
+
+
+# === Main execution ===
+def main():
+    latest_post_id = get_latest_post_id()
+    last_post_id = get_last_post_id()
+    folder_rotation = get_folder_rotation()
+
+    if latest_post_id and latest_post_id != last_post_id:
+        print(f"🆕 New post detected: {latest_post_id}")
+        post_comments_for_post(latest_post_id, folder_rotation)
+        save_last_post_id(latest_post_id)
+
+        # Rotate folder for next new post
+        folder_rotation += 1
+        if folder_rotation > FOLDER_COUNT:
+            folder_rotation = 1
+        save_folder_rotation(folder_rotation)
+
+    else:
+        print("ℹ️ No new post detected.")
 
 
 if __name__ == "__main__":
-    logger.info(f"Token value: {SOME_SECRET}")
-
-    r = requests.get('https://weather.talkpython.fm/api/weather/?city=Berlin&country=DE')
-    if r.status_code == 200:
-        data = r.json()
-        temperature = data["forecast"]["temp"]
-        logger.info(f'Weather in Berlin: {temperature}')
+    main()
