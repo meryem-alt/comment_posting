@@ -1,137 +1,126 @@
-import requests
 import os
 import json
-import shutil
+import requests
+import time
 
-# === Settings ===
-PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")  # from GitHub Secrets
-PAGE_ID = os.environ.get("PAGE_ID")                     # from Secrets
-COMMENTS_BASE_FOLDER = "comments"
-POSTED_FOLDER = os.path.join(COMMENTS_BASE_FOLDER, "posted")
-
-# Ensure posted folder exists
-os.makedirs(POSTED_FOLDER, exist_ok=True)
-
-# Track last processed post
-last_post_id_file = "last_post_id.txt"
-last_folder_file = "last_folder.txt"
+PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
+PAGE_ID = os.getenv("PAGE_ID")
 
 
-# ------------------------------
+# -------------------------------
 # Helpers
-# ------------------------------
+# -------------------------------
 
-def get_last_post_id():
-    if os.path.exists(last_post_id_file):
-        with open(last_post_id_file, "r") as f:
-            return f.read().strip()
+def load_status():
+    if not os.path.exists("status.json"):
+        return {"last_story": 0}
+
+    with open("status.json", "r") as f:
+        return json.load(f)
+
+
+def save_status(data):
+    with open("status.json", "w") as f:
+        json.dump(data, f)
+
+
+def post_facebook_image(image_path):
+    url = f"https://graph.facebook.com/v19.0/{PAGE_ID}/photos"
+    files = {"source": open(image_path, "rb")}
+    params = {"access_token": PAGE_ACCESS_TOKEN}
+
+    res = requests.post(url, files=files, data=params).json()
+
+    if "post_id" in res:
+        print("✅ Posted main image:", image_path)
+        return res["post_id"]
+
+    print("❌ Failed posting main image:", res)
     return None
 
 
-def save_last_post_id(post_id):
-    with open(last_post_id_file, "w") as f:
-        f.write(post_id)
+def post_comment_image(post_id, image_path):
+    url = f"https://graph.facebook.com/v19.0/{post_id}/comments"
+    files = {"source": open(image_path, "rb")}
+    params = {"access_token": PAGE_ACCESS_TOKEN}
+
+    res = requests.post(url, files=files, data=params).json()
+
+    if "id" in res:
+        print("🟢 Comment posted:", image_path)
+        return True
+
+    print("❌ Comment failed:", res)
+    return False
 
 
-def get_last_folder():
-    if os.path.exists(last_folder_file):
-        with open(last_folder_file, "r") as f:
-            return int(f.read().strip())
-    return 0
-
-
-def save_last_folder(n):
-    with open(last_folder_file, "w") as f:
-        f.write(str(n))
-
-
-def get_latest_post_id():
-    url_feed = f"https://graph.facebook.com/v19.0/{PAGE_ID}/feed"
-    params = {"access_token": PAGE_ACCESS_TOKEN, "limit": 1}
-
-    response = requests.get(url_feed, params=params)
-    feed = response.json()
-
-    if "data" in feed and feed["data"]:
-        return feed["data"][0]["id"]
-
-    return None
-
-
-def get_next_folder():
-    last_used = get_last_folder()
-    next_folder = last_used + 1
-    if next_folder > 12:
-        next_folder = 1
-    save_last_folder(next_folder)
-    return next_folder
-
-
-# ------------------------------
-# Comment Posting
-# ------------------------------
-
-def post_comments_for_post(post_id):
-    folder_number = get_next_folder()
-    folder_path = os.path.join(COMMENTS_BASE_FOLDER, str(folder_number))
-
-    print(f"\n📁 Using folder: {folder_number}")
-
-    if not os.path.exists(folder_path):
-        print(f"⚠️ Folder {folder_number} does not exist, skipping.")
-        return
-
-    image_files = [
-        f for f in os.listdir(folder_path)
-        if f.lower().endswith(('.png', '.jpg', '.jpeg'))
-    ]
-
-    if not image_files:
-        print("⚠️ No images found in this folder.")
-        return
-
-    for image_name in image_files:
-        image_path = os.path.join(folder_path, image_name)
-
-        with open(image_path, "rb") as img:
-            image_data = img.read()
-
-        url_comment = f"https://graph.facebook.com/v19.0/{post_id}/comments"
-        files = {'source': (image_name, image_data)}
-        params = {'access_token': PAGE_ACCESS_TOKEN}
-
-        print(f"📤 Uploading: {image_name} ...")
-        res = requests.post(url_comment, files=files, data=params).json()
-        print(json.dumps(res, indent=2))
-
-        if "id" in res:
-            print(f"✅ Posted: {image_name}")
-            shutil.move(image_path, os.path.join(POSTED_FOLDER, image_name))
-        else:
-            print(f"❌ Failed: {image_name}")
-
-
-# ------------------------------
-# MAIN
-# ------------------------------
+# -------------------------------
+# MAIN LOGIC
+# -------------------------------
 
 def main():
-    latest_post_id = get_latest_post_id()
-    last_post_id = get_last_post_id()
+    status = load_status()
+    last_story = status.get("last_story", 0)
 
-    print(f"📌 Latest FB Post ID: {latest_post_id}")
-    print(f"📌 Last saved Post ID: {last_post_id}")
+    # -----------------------------
+    # CHECK FOR NEXT STORY
+    # -----------------------------
+    stories = sorted([int(f.split(".")[0])
+                      for f in os.listdir("mainstory")
+                      if f.endswith((".png", ".jpg", ".jpeg"))])
 
-    # ------------------------------
-    # Detect NEW POST
-    # ------------------------------
-    if latest_post_id and latest_post_id != last_post_id:
-        print(f"\n🆕 New post detected!")
-        post_comments_for_post(latest_post_id)
-        print("💾 Saving last_post_id ...")
-        save_last_post_id(latest_post_id)
+    if not stories:
+        print("❌ No stories found in mainstory/")
+        return
+
+    # Find the next story to post
+    next_story = None
+    for s in stories:
+        if s > last_story:
+            next_story = s
+            break
+
+    if next_story is None:
+        print("✨ No new story to publish. Waiting next run...")
+        return
+
+    print(f"📌 Starting Story #{next_story}")
+
+    # -----------------------------
+    # POST MAIN STORY
+    # -----------------------------
+    main_image_path = f"mainstory/{next_story}.png"
+    post_id = post_facebook_image(main_image_path)
+
+    if not post_id:
+        print("❌ Cannot continue without main post.")
+        return
+
+    # -----------------------------
+    # POST ALL COMMENTS IMAGES
+    # -----------------------------
+    comments_folder = f"comments/{next_story}"
+
+    if not os.path.exists(comments_folder):
+        print(f"⚠️ No comments folder for story {next_story}. Skipping...")
     else:
-        print("ℹ️ No new post detected. Exiting.")
+        images = sorted([
+            f for f in os.listdir(comments_folder)
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+        ])
+
+        for img in images:
+            img_path = os.path.join(comments_folder, img)
+            post_comment_image(post_id, img_path)
+            time.sleep(1)  # Delay small for safety
+
+    # -----------------------------
+    # UPDATE STATUS
+    # -----------------------------
+    status["last_story"] = next_story
+    save_status(status)
+
+    print(f"🎉 Story {next_story} Completed!")
 
 
 if __name__ == "__main__":
