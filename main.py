@@ -65,12 +65,14 @@ def main():
     # -----------------------------
     # CHECK FOR NEXT STORY
     # -----------------------------
-    stories = sorted([int(f.split(".")[0])
-                      for f in os.listdir("mainstory")
-                      if f.endswith((".png", ".jpg", ".jpeg"))])
+    stories = sorted([
+        int(f.split(".")[0])
+        for f in os.listdir("mainstories")
+        if f.endswith((".png", ".jpg", ".jpeg"))
+    ])
 
     if not stories:
-        print("❌ No stories found in mainstory/")
+        print("❌ No stories found in mainstories/")
         return
 
     # Find the next story to post
@@ -89,7 +91,7 @@ def main():
     # -----------------------------
     # POST MAIN STORY
     # -----------------------------
-    main_image_path = f"mainstory/{next_story}.png"
+    main_image_path = f"mainstories/{next_story}.png"
     post_id = post_facebook_image(main_image_path)
 
     if not post_id:
@@ -112,7 +114,7 @@ def main():
         for img in images:
             img_path = os.path.join(comments_folder, img)
             post_comment_image(post_id, img_path)
-            time.sleep(1)  # Delay small for safety
+            time.sleep(1)
 
     # -----------------------------
     # UPDATE STATUS
