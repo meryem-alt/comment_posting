@@ -2,7 +2,7 @@ name: Auto Post Stories & Comments
 
 on:
   schedule:
-    - cron: '0 * * * *'   # كل ساعة
+    - cron: '30 */2 * * *'   # كل ساعة
   workflow_dispatch:
 
 jobs:
